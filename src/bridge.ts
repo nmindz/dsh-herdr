@@ -49,7 +49,8 @@ export class DshHerdrBridge {
   async dispose(): Promise<void> {
     if (this.#disposed) return
     this.#disposed = true
-    await this.#reporter.release()
+    if (this.#reporter.close !== undefined) await this.#reporter.close()
+    else await this.#reporter.release()
   }
 
   #changed(): void {
