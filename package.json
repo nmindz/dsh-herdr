@@ -1,6 +1,6 @@
 {
   "name": "@lbryany/dsh-herdr",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Herdr lifecycle status integration for DeepSeek Harness",
   "keywords": [
     "dsh-plugin",

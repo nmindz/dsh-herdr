@@ -27,7 +27,7 @@ DeepSeek Harness 的 Herdr 状态集成插件。插件运行在 DSH TUI 进程�
 npm install
 npm run check
 npm pack --ignore-scripts
-dsh plugin --profile tui add ./lbryany-dsh-herdr-0.1.1.tgz
+dsh plugin --profile tui add ./lbryany-dsh-herdr-0.1.2.tgz
 dsh --profile tui
 ```
 
@@ -51,7 +51,7 @@ DSH 开始处理消息时应显示 `working`，等待工具审批时显示 `bloc
 
 ## 设计说明
 
-- 状态报告带单调递增的 `seq`，并串行执行，防止旧报告覆盖新状态。
+- 状态报告通过进程内队列串行执行，并使用跨进程递增的 epoch 微秒 `seq`；同一 pane 重启 DSH 后不会从 `1` 重新计数，也不会被 Herdr 当成旧报告忽略。
 - 同一 DSH 进程复用一条 socket 连接，不为每次状态变化启动 Herdr 子进程。
 - Socket 请求默认 3 秒超时；失败时回退 CLI，两条路径都失败才记录警告，不阻塞 DSH agent。
 - 多个 DSH TUI 进程分别继承自己的 `HERDR_PANE_ID`，无需跨进程协调。
