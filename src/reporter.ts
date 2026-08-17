@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { createConnection, type Socket } from 'node:net'
+import { performance } from 'node:perf_hooks'
 
 import type { StateSnapshot } from './state.ts'
 
@@ -243,7 +244,7 @@ export class HerdrSocketClient {
   }
 }
 
-/** Socket-first reporting with CLI fallback and ordered, sequenced updates. */
+/** Socket-first reporting with CLI fallback and cross-process sequenced updates. */
 export class HerdrReporter implements StateReporter {
   readonly #binary: string
   readonly #paneId: string
@@ -282,7 +283,7 @@ export class HerdrReporter implements StateReporter {
     if (!this.#released && desired === this.#lastDesired) return
     this.#released = false
     this.#lastDesired = desired
-    const seq = ++this.#sequence
+    const seq = this.#nextSequence()
     const params: HerdrParams = {
       pane_id: this.#paneId,
       source: this.#source,
@@ -308,7 +309,7 @@ export class HerdrReporter implements StateReporter {
     if (this.#released) return this.#queue
     this.#released = true
     this.#lastDesired = undefined
-    const seq = ++this.#sequence
+    const seq = this.#nextSequence()
     this.#enqueue('pane.release_agent', {
       pane_id: this.#paneId,
       source: this.#source,
@@ -330,6 +331,14 @@ export class HerdrReporter implements StateReporter {
 
   whenIdle(): Promise<void> {
     return this.#queue
+  }
+
+  #nextSequence(): number {
+    // Epoch microseconds remain below Number.MAX_SAFE_INTEGER until the 23rd
+    // century and, unlike a process-local counter, advance across DSH restarts.
+    const epochMicros = Math.floor((performance.timeOrigin + performance.now()) * 1_000)
+    this.#sequence = Math.max(this.#sequence + 1, epochMicros)
+    return this.#sequence
   }
 
   #enqueue(method: string, params: HerdrParams, args: readonly string[]): void {

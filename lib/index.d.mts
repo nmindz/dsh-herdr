@@ -50,7 +50,7 @@ declare class HerdrSocketClient {
   request(method: string, params: HerdrParams, timeoutMs: number): Promise<void>;
   close(): void;
 }
-/** Socket-first reporting with CLI fallback and ordered, sequenced updates. */
+/** Socket-first reporting with CLI fallback and cross-process sequenced updates. */
 declare class HerdrReporter implements StateReporter {
   #private;
   constructor(config: HerdrReporterConfig, run?: RunHerdr, onError?: (error: unknown) => void);
