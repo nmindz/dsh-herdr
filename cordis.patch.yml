@@ -1,0 +1,3 @@
+- insert:
+    - id: integration-herdr
+      name: '@lbryany/dsh-herdr'
