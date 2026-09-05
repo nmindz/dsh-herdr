@@ -40,8 +40,10 @@ dsh --profile tui
 本 fork 发布带标签的 release，可安装指定版本：
 
 ```sh
-dsh plugin --profile tui add github:nmindz/dsh-herdr#v0.1.3
+dsh plugin --profile tui add 'github:nmindz/dsh-herdr#v0.1.3'
 ```
+
+请给参数加引号。zsh 启用 `extendedglob` 时（很多配置默认如此），未加引号的 `#` 会被当作 glob 操作符，shell 会在 `dsh` 运行前就报 `no matches found`。
 
 省略标签则跟随默认分支：
 

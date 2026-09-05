@@ -46,8 +46,10 @@ dsh plugin --profile tui add link:/path/to/dsh-herdr
 This fork publishes tagged releases. Install a pinned one:
 
 ```sh
-dsh plugin --profile tui add github:nmindz/dsh-herdr#v0.1.3
+dsh plugin --profile tui add 'github:nmindz/dsh-herdr#v0.1.3'
 ```
+
+Quote the spec. In zsh with `extendedglob` enabled — the default in many setups — an unquoted `#` is a glob operator and the shell fails with `no matches found` before `dsh` ever runs.
 
 Omit the tag to track the default branch instead:
 
