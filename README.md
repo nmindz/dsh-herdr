@@ -1,60 +1,76 @@
 # dsh-herdr
 
-DeepSeek Harness 的 Herdr 状态集成插件。插件运行在 DSH TUI 进程内部，把该进程中的 root agent 与子 agent 聚合成当前 Herdr pane 的语义状态。
+**English** · [中文](./README.zh.md)
 
-## 状态映射
+Herdr status integration for DeepSeek Harness. The plugin runs inside the DSH TUI process and rolls the root agent and its child agents up into one semantic status for the Herdr pane that owns the process.
 
-| DSH 进程状态 | Herdr 状态 |
+## Status mapping
+
+| DSH process state | Herdr status |
 | --- | --- |
-| 任一 agent 有未处理审批 | `blocked` |
-| 无待审批，任一 agent 正在运行 | `working` |
-| 存在 agent，且全部空闲 | `idle` |
-| 最后一个 agent 已销毁或插件卸载 | `release-agent` |
+| Any agent has an unresolved approval | `blocked` |
+| No pending approval, any agent running | `working` |
+| Agents exist and all are idle | `idle` |
+| Last agent disposed, or the plugin unloaded | `release-agent` |
 
-插件监听 `agent/created`、`agent/status`、`agent/disposed` 和 `session/event`。恢复已有会话时会折叠历史中的 `approval/asked` / `approval/decided`，避免重启后丢失待审批状态。
+The plugin listens on `agent/created`, `agent/status`, `agent/disposed`, and `session/event`. When an existing session is resumed it folds the `approval/asked` and `approval/decided` events already in the log, so a pending approval survives a restart instead of being lost.
 
-## 前置要求
+## Requirements
 
-- DeepSeek Harness `0.1.0-rc.6`
-- Node.js `22.19+` 或 `24+`
-- Herdr 管理的 pane（进程环境包含 `HERDR_ENV=1` 与 `HERDR_PANE_ID`）
+- DeepSeek Harness `0.1.2-rc.1`
+- Node.js `22.19+` or `24+`
+- A Herdr-managed pane (the process environment carries `HERDR_ENV=1` and `HERDR_PANE_ID`)
 
-插件优先通过 `HERDR_SOCKET_PATH` 建立持久 NDJSON 连接；Unix 使用 domain socket，Windows 使用 named pipe。连接、超时或协议失败时，当前报告自动回退到 `HERDR_BIN_PATH` 指定的 Herdr CLI，后续状态变化会重新尝试 socket。未运行在 Herdr pane 内时自动禁用，不影响 DSH。
+The plugin prefers a persistent NDJSON connection over `HERDR_SOCKET_PATH` — a Unix domain socket on macOS and Linux, a named pipe on Windows. If the connection, a timeout, or the protocol fails, that one report falls back to the Herdr CLI named by `HERDR_BIN_PATH`, and the next status change retries the socket. Outside a Herdr pane the plugin disables itself and leaves DSH untouched.
 
-## 本地构建与安装
+## Build and install locally
 
 ```sh
-npm install
-npm run check
-npm pack --ignore-scripts
-dsh plugin --profile tui add ./lbryany-dsh-herdr-0.1.2.tgz
+pnpm install
+pnpm run check
+pnpm pack --ignore-scripts
+dsh plugin --profile tui add ./lbryany-dsh-herdr-0.1.3.tgz
 dsh --profile tui
 ```
 
-如果 TUI profile 使用其他名字，请替换命令中的 `tui`。
+Replace `tui` with your own profile name if it differs.
 
-发布到 GitHub 后可直接安装：
+To develop against a checkout instead of a tarball, link it into the profile — the profile then always loads your latest `pnpm run build` output:
 
 ```sh
-dsh plugin --profile tui add github:Lbryany/dsh-herdr
+dsh plugin --profile tui add link:/path/to/dsh-herdr
 ```
 
-## 验证
+## Install from a release
 
-在 Herdr pane 内启动 DSH TUI，然后从另一个 pane 查看：
+This fork publishes tagged releases. Install a pinned one:
+
+```sh
+dsh plugin --profile tui add github:nmindz/dsh-herdr#v0.1.3
+```
+
+Omit the tag to track the default branch instead:
+
+```sh
+dsh plugin --profile tui add github:nmindz/dsh-herdr
+```
+
+## Verify
+
+Start the DSH TUI inside a Herdr pane, then inspect it from another pane:
 
 ```sh
 herdr agent list
 ```
 
-DSH 开始处理消息时应显示 `working`，等待工具审批时显示 `blocked`，完成后显示 `idle` 或 Herdr 根据可见性派生的 `done`。
+It should read `working` while DSH is processing a message, `blocked` while it waits on a tool approval, and `idle` when it finishes — or `done`, if Herdr derives that from pane visibility.
 
-## 设计说明
+## Design notes
 
-- 状态报告通过进程内队列串行执行，并使用跨进程递增的 epoch 微秒 `seq`；同一 pane 重启 DSH 后不会从 `1` 重新计数，也不会被 Herdr 当成旧报告忽略。
-- 同一 DSH 进程复用一条 socket 连接，不为每次状态变化启动 Herdr 子进程。
-- Socket 请求默认 3 秒超时；失败时回退 CLI，两条路径都失败才记录警告，不阻塞 DSH agent。
-- 多个 DSH TUI 进程分别继承自己的 `HERDR_PANE_ID`，无需跨进程协调。
+- Status reports run serially through an in-process queue and carry a `seq` in epoch microseconds, which increases across processes. Restarting DSH in the same pane therefore does not restart the count at `1`, and Herdr does not mistake a fresh report for a stale one.
+- One DSH process reuses a single socket connection rather than spawning a Herdr child process per status change.
+- Socket requests time out after 3 seconds by default. A failure falls back to the CLI, and only when both paths fail is a warning logged — a reporting failure never blocks a DSH agent.
+- Each DSH TUI process inherits its own `HERDR_PANE_ID`, so no cross-process coordination is needed.
 
 ## License
 

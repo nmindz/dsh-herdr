@@ -20,7 +20,7 @@ export class DshHerdrBridge {
   }
 
   upsert(agent: Agent): void {
-    this.#tracker.upsert(String(agent.id), agent.status, unresolvedApprovals(agent.session.events))
+    this.#tracker.upsert(String(agent.id), agent.status, unresolvedApprovals(agent.session.snapshotEvents()))
     this.#changed()
   }
 

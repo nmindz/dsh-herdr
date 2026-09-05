@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomBytes } from 'node:crypto'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -25,11 +26,24 @@ test('environment config only enables reporting inside a Herdr pane', () => {
   })
 })
 
+/**
+ * Longest `sockaddr_un.sun_path` accepted by macOS and the BSDs, including the
+ * terminating NUL. Linux allows 108; 104 is the portable floor.
+ */
+const SUN_PATH_MAX = 104
+
 function testSocketPath(label: string): string {
-  const unique = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`
-  return process.platform === 'win32'
-    ? `\\\\.\\pipe\\dsh-herdr-${label}-${unique}`
-    : join(tmpdir(), `dsh-herdr-${label}-${unique}.sock`)
+  const unique = randomBytes(4).toString('hex')
+  if (process.platform === 'win32') return `\\\\.\\pipe\\dsh-herdr-${label}-${unique}`
+  // macOS hands each user a ~48-byte TMPDIR, so the file name has to stay short:
+  // a pid+timestamp+random suffix overflows sun_path and listen() fails with
+  // EINVAL long before anything about the reporter is exercised.
+  const path = join(tmpdir(), `dsh-${label}-${unique}.sock`)
+  assert.ok(
+    Buffer.byteLength(path) < SUN_PATH_MAX,
+    `test socket path is ${Buffer.byteLength(path)} bytes; sun_path allows ${SUN_PATH_MAX - 1}: ${path}`,
+  )
+  return path
 }
 
 test('reporter reuses one persistent socket and sends Herdr NDJSON methods', async () => {
