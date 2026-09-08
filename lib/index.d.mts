@@ -79,6 +79,8 @@ declare class HerdrReporter implements StateReporter {
 interface DshDisplay {
   readonly title?: string;
   readonly model?: string;
+  readonly limit?: string;
+  readonly context?: string;
 }
 declare class DshHerdrBridge {
   #private;
@@ -94,9 +96,37 @@ declare class DshHerdrBridge {
   dispose(): Promise<void>;
 }
 //#endregion
+//#region src/display.d.ts
+/**
+ * Sidebar text for the usage tokens. Herdr sidebars render these beside the
+ * equivalents other agents publish, so the shapes deliberately match: a `Σ`
+ * cumulative total and a `⊙` context meter.
+ */
+/** Cumulative provider usage for a whole session log. */
+interface TokenUsage {
+  readonly uncachedInputTokens?: number;
+  readonly outputTokens?: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheWriteTokens?: number;
+}
+/** Prompt-side occupancy of the model's context window. */
+interface ContextPressure {
+  readonly contextWindow?: number;
+  readonly pressureTokens?: number;
+  readonly projectedTokens?: number;
+}
+/** 999 · 575k · 128M — the magnitudes a sidebar row has room for. */
+declare function humanizeTokens(total: number): string;
+declare function formatTokenTotal(usage: TokenUsage | null | undefined): string | undefined;
+/**
+ * DSH stores no percentage, so derive it. Without a context window only the
+ * raw token count is honest — a percentage of an unknown budget is not.
+ */
+declare function formatContextPressure(pressure: ContextPressure | null | undefined): string | undefined;
+//#endregion
 //#region src/index.d.ts
 declare const name = "integration-herdr";
 declare const inject: string[];
 declare function apply(ctx: Context): void;
 //#endregion
-export { DshDisplay, DshHerdrBridge, DshStateTracker, HERDR_AGENT, HERDR_SOURCE, HerdrAgentState, HerdrReporter, HerdrReporterConfig, HerdrSocketClient, MetadataSnapshot, RunHerdr, StateReporter, StateSnapshot, apply, inject, name, reporterConfigFromEnv, runHerdr, unresolvedApprovals };
+export { ContextPressure, DshDisplay, DshHerdrBridge, DshStateTracker, HERDR_AGENT, HERDR_SOURCE, HerdrAgentState, HerdrReporter, HerdrReporterConfig, HerdrSocketClient, MetadataSnapshot, RunHerdr, StateReporter, StateSnapshot, TokenUsage, apply, formatContextPressure, formatTokenTotal, humanizeTokens, inject, name, reporterConfigFromEnv, runHerdr, unresolvedApprovals };

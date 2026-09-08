@@ -89,7 +89,7 @@ test('sidebar tokens mirror the usagebar names and carry the rollup', async () =
   const { reporter, display } = collector()
   const bridge = new DshHerdrBridge(reporter)
 
-  bridge.setDisplay({ title: 'dsh-herdr', model: 'deepseek-v4-flash · max' })
+  bridge.setDisplay({ title: 'Herdr dsh integration', model: 'deepseek-v4-flash · max' })
   bridge.announce()
   await Promise.resolve()
 
@@ -98,18 +98,37 @@ test('sidebar tokens mirror the usagebar names and carry the rollup', async () =
     tokens: {
       context: 'idle',
       dsh_context: 'idle',
-      title: 'dsh-herdr',
-      dsh_title: 'dsh-herdr',
-      provider: 'deepseek-v4-flash · max',
+      dsh_rollup: 'idle',
+      title: 'Herdr dsh integration',
+      dsh_title: 'Herdr dsh integration',
       dsh_model: 'deepseek-v4-flash · max',
     },
   })
 
-  // The rollup message drives $context as agents come and go.
+  // The rollup stands in for $context until a real meter arrives.
   bridge.upsert(fakeAgent('root', 'running'))
   await Promise.resolve()
   assert.equal(display.at(-1)?.tokens.context, '1 agent working')
-  assert.equal(display.at(-1)?.tokens.dsh_context, '1 agent working')
+
+  bridge.setDisplay({ limit: 'Σ 128M', context: '⊙ 57% (575k)' })
+  await Promise.resolve()
+  assert.equal(display.at(-1)?.tokens.limit, 'Σ 128M')
+  assert.equal(display.at(-1)?.tokens.dsh_limit, 'Σ 128M')
+  assert.equal(display.at(-1)?.tokens.context, '⊙ 57% (575k)')
+  // The rollup stays reachable on its own token once the meter takes over.
+  assert.equal(display.at(-1)?.tokens.dsh_rollup, '1 agent working')
+})
+
+test('provider is left alone so a usage plugin keeps owning it', async () => {
+  const { reporter, display } = collector()
+  const bridge = new DshHerdrBridge(reporter)
+
+  bridge.setDisplay({ model: 'deepseek-v4-flash · max' })
+  bridge.announce()
+  await Promise.resolve()
+
+  assert.equal(display.at(-1)?.tokens.provider, undefined)
+  assert.equal(display.at(-1)?.tokens.dsh_model, 'deepseek-v4-flash · max')
 })
 
 test('metadata stays optional on a reporter that does not implement it', async () => {

@@ -8,6 +8,8 @@ import { DshStateTracker, unresolvedApprovals, type StateSnapshot } from './stat
 export interface DshDisplay {
   readonly title?: string
   readonly model?: string
+  readonly limit?: string
+  readonly context?: string
 }
 
 interface ApprovalEvent {
@@ -93,17 +95,24 @@ export class DshHerdrBridge {
    */
   #metadata(snapshot: StateSnapshot): MetadataSnapshot {
     const tokens: Record<string, string> = {}
-    const context = snapshot.message ?? 'idle'
-    tokens.context = context
-    tokens.dsh_context = context
+    const rollup = snapshot.message ?? 'idle'
+    // The rollup stands in for the context meter until the first LLM request
+    // gives DSH a window to measure against, and stays available on its own
+    // token afterwards.
+    tokens.context = this.#display.context ?? rollup
+    tokens.dsh_context = tokens.context
+    tokens.dsh_rollup = rollup
     if (this.#display.title !== undefined) {
       tokens.title = this.#display.title
       tokens.dsh_title = this.#display.title
     }
-    if (this.#display.model !== undefined) {
-      tokens.provider = this.#display.model
-      tokens.dsh_model = this.#display.model
+    if (this.#display.limit !== undefined) {
+      tokens.limit = this.#display.limit
+      tokens.dsh_limit = this.#display.limit
     }
+    // `provider` is left to whichever plugin owns provider/auth text; the model
+    // stays on a DSH-private token so the two never overwrite each other.
+    if (this.#display.model !== undefined) tokens.dsh_model = this.#display.model
     return { displayAgent: 'dsh', tokens }
   }
 }

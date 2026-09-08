@@ -4,10 +4,16 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
 import { DshHerdrBridge } from './bridge.ts'
+import {
+  type ContextPressure,
+  formatContextPressure,
+  formatTokenTotal,
+  type TokenUsage,
+} from './display.ts'
 import { HerdrReporter, reporterConfigFromEnv } from './reporter.ts'
 
-
 export * from './bridge.ts'
+export * from './display.ts'
 export * from './reporter.ts'
 export * from './state.ts'
 
@@ -19,27 +25,52 @@ interface ModelSelection {
   readonly reasoningEffort?: string
 }
 
-/** Structural view of the `modelSelection` session projection. */
+const PROJECTION_KEYS = ['modelSelection', 'title', 'tokenUsage', 'contextPressure'] as const
+
+/** Structural view of the session projections the sidebar draws from. */
 interface SessionProjections {
   snapshot(session: unknown, keys: readonly string[]): {
-    readonly values?: { readonly modelSelection?: { readonly next?: ModelSelection | null } }
+    readonly values?: {
+      readonly modelSelection?: { readonly next?: ModelSelection | null }
+      readonly title?: string | null
+      readonly tokenUsage?: TokenUsage | null
+      readonly contextPressure?: ContextPressure | null
+    }
   }
 }
 
+function modelLabel(selection: ModelSelection | null | undefined): string | undefined {
+  const model = selection?.model
+  if (model === undefined || model === '') return undefined
+  const effort = selection?.reasoningEffort
+  return effort === undefined || effort === '' ? model : `${model} · ${effort}`
+}
+
 /**
- * Model and effort live in a session projection, not the agent registry. The
- * service is optional: reading it defensively keeps a profile that never loads
- * it — or a DSH that renames it — from taking the whole rollup down with it.
+ * Title, usage and context live in session projections rather than on the
+ * agent, so they are readable before the first agent exists. The service is
+ * optional and read defensively: a profile that never loads it — or a DSH that
+ * renames a projection — must not take the whole rollup down with it.
  */
-function syncModelSelection(ctx: Context, session: unknown, bridge: DshHerdrBridge): void {
+function syncSessionDisplay(ctx: Context, session: unknown, bridge: DshHerdrBridge): void {
   try {
     const projections = (ctx as unknown as { sessionProjections?: SessionProjections }).sessionProjections
     if (projections === undefined) return
-    const selection = projections.snapshot(session, ['modelSelection']).values?.modelSelection?.next
-    const model = selection?.model
-    if (model === undefined || model === '') return
-    const effort = selection?.reasoningEffort
-    bridge.setDisplay({ model: effort === undefined || effort === '' ? model : `${model} · ${effort}` })
+    const values = projections.snapshot(session, PROJECTION_KEYS).values
+    if (values === undefined) return
+    const title = values.title
+    bridge.setDisplay({
+      ...(modelLabel(values.modelSelection?.next) === undefined
+        ? {}
+        : { model: modelLabel(values.modelSelection?.next) }),
+      ...(title === null || title === undefined || title === '' ? {} : { title }),
+      ...(formatTokenTotal(values.tokenUsage) === undefined
+        ? {}
+        : { limit: formatTokenTotal(values.tokenUsage) }),
+      ...(formatContextPressure(values.contextPressure) === undefined
+        ? {}
+        : { context: formatContextPressure(values.contextPressure) }),
+    })
   } catch {
     // A projection shape change must not break state reporting.
   }
@@ -80,6 +111,6 @@ export function apply(ctx: Context): void {
   })
   ctx.on('session/event', (session, event) => {
     bridge.sessionEvent(session.id, event as SessionEvent)
-    syncModelSelection(ctx, session, bridge)
+    syncSessionDisplay(ctx, session, bridge)
   })
 }
