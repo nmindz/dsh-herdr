@@ -18,13 +18,20 @@ export interface HerdrReporterConfig {
 
 export type RunHerdr = (binary: string, args: readonly string[], timeoutMs: number) => Promise<void>
 
+/** Display-only sidebar fields; Herdr keeps these out of state and waits. */
+export interface MetadataSnapshot {
+  readonly displayAgent?: string
+  readonly tokens: Readonly<Record<string, string>>
+}
+
 export interface StateReporter {
   update(snapshot: StateSnapshot): void
   release(): Promise<void>
+  metadata?(snapshot: MetadataSnapshot): void
   close?(): Promise<void> | void
 }
 
-type HerdrParams = Record<string, string | number>
+type HerdrParams = Record<string, string | number | Readonly<Record<string, string>>>
 
 interface PendingResponse {
   readonly socket: Socket
@@ -256,6 +263,7 @@ export class HerdrReporter implements StateReporter {
   readonly #socket?: HerdrSocketClient
   #sequence = 0
   #lastDesired?: string
+  #lastMetadata?: string
   #released = true
   #queue: Promise<void> = Promise.resolve()
 
@@ -307,6 +315,37 @@ export class HerdrReporter implements StateReporter {
       args.push('--agent-session-id', snapshot.sessionId)
     }
     this.#enqueue('pane.report_agent', params, args)
+  }
+
+  /**
+   * Presentation rides a sibling source so it never competes with the
+   * lifecycle authority reported above.
+   */
+  metadata(snapshot: MetadataSnapshot): void {
+    const desired = JSON.stringify([snapshot.displayAgent ?? '', snapshot.tokens])
+    if (desired === this.#lastMetadata) return
+    this.#lastMetadata = desired
+    const source = `${this.#source}-display`
+    const seq = this.#nextSequence()
+    const params: HerdrParams = {
+      pane_id: this.#paneId,
+      source,
+      agent: this.#agent,
+      seq,
+      tokens: snapshot.tokens,
+    }
+    const args = [
+      'pane', 'report-metadata', this.#paneId,
+      '--source', source,
+      '--agent', this.#agent,
+      '--seq', String(seq),
+    ]
+    for (const [name, value] of Object.entries(snapshot.tokens)) args.push('--token', `${name}=${value}`)
+    if (snapshot.displayAgent !== undefined) {
+      params.display_agent = snapshot.displayAgent
+      args.push('--display-agent', snapshot.displayAgent)
+    }
+    this.#enqueue('pane.report_metadata', params, args)
   }
 
   release(): Promise<void> {

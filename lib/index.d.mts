@@ -38,12 +38,18 @@ interface HerdrReporterConfig {
   readonly timeoutMs?: number;
 }
 type RunHerdr = (binary: string, args: readonly string[], timeoutMs: number) => Promise<void>;
+/** Display-only sidebar fields; Herdr keeps these out of state and waits. */
+interface MetadataSnapshot {
+  readonly displayAgent?: string;
+  readonly tokens: Readonly<Record<string, string>>;
+}
 interface StateReporter {
   update(snapshot: StateSnapshot): void;
   release(): Promise<void>;
+  metadata?(snapshot: MetadataSnapshot): void;
   close?(): Promise<void> | void;
 }
-type HerdrParams = Record<string, string | number>;
+type HerdrParams = Record<string, string | number | Readonly<Record<string, string>>>;
 declare function reporterConfigFromEnv(env?: NodeJS.ProcessEnv): HerdrReporterConfig | undefined;
 declare function runHerdr(binary: string, args: readonly string[], timeoutMs: number): Promise<void>;
 /** Persistent newline-delimited JSON client for Unix sockets and Windows named pipes. */
@@ -58,18 +64,29 @@ declare class HerdrReporter implements StateReporter {
   #private;
   constructor(config: HerdrReporterConfig, run?: RunHerdr, onError?: (error: unknown) => void);
   update(snapshot: StateSnapshot): void;
+  /**
+   * Presentation rides a sibling source so it never competes with the
+   * lifecycle authority reported above.
+   */
+  metadata(snapshot: MetadataSnapshot): void;
   release(): Promise<void>;
   close(): Promise<void>;
   whenIdle(): Promise<void>;
 }
 //#endregion
 //#region src/bridge.d.ts
+/** Sidebar fields DSH owns but the rollup cannot derive on its own. */
+interface DshDisplay {
+  readonly title?: string;
+  readonly model?: string;
+}
 declare class DshHerdrBridge {
   #private;
   constructor(reporter: StateReporter);
   /** Claim the pane as soon as the plugin loads, before any agent exists. */
   announce(): void;
   setRootSession(sessionId: string | undefined): void;
+  setDisplay(display: DshDisplay): void;
   upsert(agent: Agent): void;
   setStatus(agentId: unknown, status: AgentStatus): void;
   sessionEvent(sessionId: unknown, event: SessionEvent): void;
@@ -82,4 +99,4 @@ declare const name = "integration-herdr";
 declare const inject: string[];
 declare function apply(ctx: Context): void;
 //#endregion
-export { DshHerdrBridge, DshStateTracker, HERDR_AGENT, HERDR_SOURCE, HerdrAgentState, HerdrReporter, HerdrReporterConfig, HerdrSocketClient, RunHerdr, StateReporter, StateSnapshot, apply, inject, name, reporterConfigFromEnv, runHerdr, unresolvedApprovals };
+export { DshDisplay, DshHerdrBridge, DshStateTracker, HERDR_AGENT, HERDR_SOURCE, HerdrAgentState, HerdrReporter, HerdrReporterConfig, HerdrSocketClient, MetadataSnapshot, RunHerdr, StateReporter, StateSnapshot, apply, inject, name, reporterConfigFromEnv, runHerdr, unresolvedApprovals };

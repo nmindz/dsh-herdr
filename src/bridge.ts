@@ -1,8 +1,14 @@
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
-import type { StateReporter } from './reporter.ts'
-import { DshStateTracker, unresolvedApprovals } from './state.ts'
+import type { MetadataSnapshot, StateReporter } from './reporter.ts'
+import { DshStateTracker, unresolvedApprovals, type StateSnapshot } from './state.ts'
+
+/** Sidebar fields DSH owns but the rollup cannot derive on its own. */
+export interface DshDisplay {
+  readonly title?: string
+  readonly model?: string
+}
 
 interface ApprovalEvent {
   readonly type: 'approval/asked' | 'approval/decided'
@@ -12,6 +18,7 @@ interface ApprovalEvent {
 export class DshHerdrBridge {
   readonly #reporter: StateReporter
   readonly #tracker = new DshStateTracker()
+  #display: DshDisplay = {}
   #scheduled = false
   #disposed = false
 
@@ -26,6 +33,11 @@ export class DshHerdrBridge {
 
   setRootSession(sessionId: string | undefined): void {
     this.#tracker.setRootSession(sessionId)
+    this.#changed()
+  }
+
+  setDisplay(display: DshDisplay): void {
+    this.#display = { ...this.#display, ...display }
     this.#changed()
   }
 
@@ -68,7 +80,30 @@ export class DshHerdrBridge {
     this.#scheduled = true
     queueMicrotask(() => {
       this.#scheduled = false
-      if (!this.#disposed) this.#reporter.update(this.#tracker.snapshot())
+      if (this.#disposed) return
+      const snapshot = this.#tracker.snapshot()
+      this.#reporter.update(snapshot)
+      this.#reporter.metadata?.(this.#metadata(snapshot))
     })
+  }
+
+  /**
+   * Mirrored onto the token names Herdr sidebars already compose with, so an
+   * existing `ui.sidebar.agents` layout renders DSH without being rewritten.
+   */
+  #metadata(snapshot: StateSnapshot): MetadataSnapshot {
+    const tokens: Record<string, string> = {}
+    const context = snapshot.message ?? 'idle'
+    tokens.context = context
+    tokens.dsh_context = context
+    if (this.#display.title !== undefined) {
+      tokens.title = this.#display.title
+      tokens.dsh_title = this.#display.title
+    }
+    if (this.#display.model !== undefined) {
+      tokens.provider = this.#display.model
+      tokens.dsh_model = this.#display.model
+    }
+    return { displayAgent: 'dsh', tokens }
   }
 }

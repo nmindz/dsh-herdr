@@ -5,7 +5,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 
 import { DshHerdrBridge } from '../src/bridge.ts'
-import type { StateReporter } from '../src/reporter.ts'
+import type { MetadataSnapshot, StateReporter } from '../src/reporter.ts'
 import type { StateSnapshot } from '../src/state.ts'
 
 /**
@@ -24,14 +24,22 @@ function approval(type: 'approval/asked' | 'approval/decided', id: string): Sess
   return { type, data: { id } } as unknown as SessionEvent
 }
 
-function collector(): { reporter: StateReporter; updates: StateSnapshot[]; releases: () => number } {
+function collector(): {
+  reporter: StateReporter
+  updates: StateSnapshot[]
+  display: MetadataSnapshot[]
+  releases: () => number
+} {
   const updates: StateSnapshot[] = []
+  const display: MetadataSnapshot[] = []
   let releases = 0
   return {
     updates,
+    display,
     releases: () => releases,
     reporter: {
       update: snapshot => updates.push(snapshot),
+      metadata: snapshot => display.push(snapshot),
       release: async () => { releases += 1 },
     },
   }
@@ -75,6 +83,45 @@ test('announce registers the pane with no agents present', async () => {
   assert.equal(updates.length, 1)
   assert.equal(updates[0]?.state, 'idle')
   assert.equal(updates[0]?.agentCount, 0)
+})
+
+test('sidebar tokens mirror the usagebar names and carry the rollup', async () => {
+  const { reporter, display } = collector()
+  const bridge = new DshHerdrBridge(reporter)
+
+  bridge.setDisplay({ title: 'dsh-herdr', model: 'deepseek-v4-flash · max' })
+  bridge.announce()
+  await Promise.resolve()
+
+  assert.deepEqual(display.at(-1), {
+    displayAgent: 'dsh',
+    tokens: {
+      context: 'idle',
+      dsh_context: 'idle',
+      title: 'dsh-herdr',
+      dsh_title: 'dsh-herdr',
+      provider: 'deepseek-v4-flash · max',
+      dsh_model: 'deepseek-v4-flash · max',
+    },
+  })
+
+  // The rollup message drives $context as agents come and go.
+  bridge.upsert(fakeAgent('root', 'running'))
+  await Promise.resolve()
+  assert.equal(display.at(-1)?.tokens.context, '1 agent working')
+  assert.equal(display.at(-1)?.tokens.dsh_context, '1 agent working')
+})
+
+test('metadata stays optional on a reporter that does not implement it', async () => {
+  const updates: StateSnapshot[] = []
+  const bridge = new DshHerdrBridge({
+    update: snapshot => updates.push(snapshot),
+    release: async () => undefined,
+  })
+
+  bridge.announce()
+  await Promise.resolve()
+  assert.equal(updates.length, 1)
 })
 
 test('the root session id reaches the reporter', async () => {
