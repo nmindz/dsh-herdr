@@ -33,13 +33,6 @@ export interface StateReporter {
 
 type HerdrParams = Record<string, string | number | Readonly<Record<string, string>>>
 
-interface PendingResponse {
-  readonly socket: Socket
-  readonly timer: NodeJS.Timeout
-  readonly resolve: () => void
-  readonly reject: (error: Error) => void
-}
-
 interface HerdrResponse {
   readonly id?: unknown
   readonly result?: unknown
@@ -102,12 +95,17 @@ export function runHerdr(
   })
 }
 
-/** Persistent newline-delimited JSON client for Unix sockets and Windows named pipes. */
+/**
+ * Newline-delimited JSON client for Unix sockets and Windows named pipes.
+ *
+ * Herdr serves one request per connection and hangs up after answering, so
+ * every request dials its own socket. Holding one open and writing a second
+ * request to it earns an EPIPE, which is silent here: the report is dropped
+ * and the pane keeps whatever state it had.
+ */
 export class HerdrSocketClient {
   readonly #socketPath: string
-  readonly #pending = new Map<string, PendingResponse>()
-  #socket?: Socket
-  #connecting?: Promise<Socket>
+  readonly #open = new Set<Socket>()
   #requestSequence = 0
   #closed = false
 
@@ -115,25 +113,46 @@ export class HerdrSocketClient {
     this.#socketPath = socketPath
   }
 
-  async request(method: string, params: HerdrParams, timeoutMs: number): Promise<void> {
-    if (this.#closed) throw new Error('Herdr socket client is closed')
-    const socket = await this.#connect(timeoutMs)
+  request(method: string, params: HerdrParams, timeoutMs: number): Promise<void> {
+    if (this.#closed) return Promise.reject(new Error('Herdr socket client is closed'))
     const id = `dsh-herdr-${process.pid}-${++this.#requestSequence}`
 
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.#pending.delete(id)
-        reject(new Error(`Herdr socket request timed out after ${timeoutMs}ms`))
-        this.#disconnect(socket, new Error('Herdr socket response timed out'))
-      }, timeoutMs)
-      timer.unref()
-      this.#pending.set(id, { socket, timer, resolve, reject })
+      const socket = createConnection({ path: this.#socketPath })
+      this.#open.add(socket)
+      let settled = false
+      let buffer = ''
 
-      socket.write(`${JSON.stringify({ id, method, params })}\n`, 'utf8', error => {
-        if (error === undefined || error === null) return
-        const pending = this.#takePending(id)
-        pending?.reject(error)
-        this.#disconnect(socket, error)
+      const finish = (error?: Error): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        this.#open.delete(socket)
+        if (!socket.destroyed) socket.destroy()
+        if (error === undefined) resolve()
+        else reject(error)
+      }
+
+      const timer = setTimeout(
+        () => finish(new Error(`Herdr socket request timed out after ${timeoutMs}ms`)),
+        timeoutMs,
+      )
+      timer.unref()
+
+      socket.setEncoding('utf8')
+      socket.on('data', chunk => {
+        buffer += chunk
+        const newline = buffer.indexOf('\n')
+        if (newline < 0) return
+        const line = buffer.slice(0, newline).trim()
+        if (line !== '') finish(this.#responseError(line, id))
+      })
+      socket.on('error', error => finish(error))
+      socket.on('close', () => finish(new Error('Herdr socket connection closed')))
+      socket.once('connect', () => {
+        socket.write(`${JSON.stringify({ id, method, params })}\n`, 'utf8', error => {
+          if (error !== undefined && error !== null) finish(error)
+        })
       })
     })
   }
@@ -141,113 +160,31 @@ export class HerdrSocketClient {
   close(): void {
     if (this.#closed) return
     this.#closed = true
-    const error = new Error('Herdr socket client closed')
-    for (const id of [...this.#pending.keys()]) this.#takePending(id)?.reject(error)
-    const socket = this.#socket
-    this.#socket = undefined
-    socket?.end()
-    socket?.destroy()
+    for (const socket of [...this.#open]) socket.destroy()
+    this.#open.clear()
   }
 
-  #connect(timeoutMs: number): Promise<Socket> {
-    if (this.#closed) return Promise.reject(new Error('Herdr socket client is closed'))
-    if (this.#socket !== undefined && !this.#socket.destroyed) return Promise.resolve(this.#socket)
-    if (this.#connecting !== undefined) return this.#connecting
-
-    const connecting = new Promise<Socket>((resolve, reject) => {
-      const socket = createConnection({ path: this.#socketPath })
-      let connected = false
-      let buffer = ''
-      const connectionTimer = setTimeout(() => {
-        const error = new Error(`Herdr socket connection timed out after ${timeoutMs}ms`)
-        reject(error)
-        this.#disconnect(socket, error)
-      }, timeoutMs)
-      connectionTimer.unref()
-
-      socket.setEncoding('utf8')
-      socket.on('data', chunk => {
-        buffer += chunk
-        while (true) {
-          const newline = buffer.indexOf('\n')
-          if (newline < 0) break
-          const line = buffer.slice(0, newline).trim()
-          buffer = buffer.slice(newline + 1)
-          if (line !== '') this.#handleLine(socket, line)
-        }
-      })
-      socket.on('error', error => {
-        clearTimeout(connectionTimer)
-        if (!connected) reject(error)
-        this.#disconnect(socket, error)
-      })
-      socket.on('close', () => {
-        clearTimeout(connectionTimer)
-        const error = new Error('Herdr socket connection closed')
-        if (!connected) reject(error)
-        this.#disconnect(socket, error)
-      })
-      socket.once('connect', () => {
-        clearTimeout(connectionTimer)
-        connected = true
-        if (this.#closed) {
-          socket.destroy()
-          reject(new Error('Herdr socket client closed while connecting'))
-          return
-        }
-        this.#socket = socket
-        resolve(socket)
-      })
-    })
-
-    this.#connecting = connecting
-    void connecting.finally(() => {
-      if (this.#connecting === connecting) this.#connecting = undefined
-    }).catch(() => undefined)
-    return connecting
-  }
-
-  #handleLine(socket: Socket, line: string): void {
+  /** The error a response line represents, or undefined when it succeeded. */
+  #responseError(line: string, id: string): Error | undefined {
     let response: HerdrResponse
     try {
       response = JSON.parse(line) as HerdrResponse
     } catch (error) {
-      this.#disconnect(socket, new Error(`Invalid Herdr socket response: ${errorText(error)}`))
-      return
+      return new Error(`Invalid Herdr socket response: ${errorText(error)}`)
     }
-
-    const id = typeof response.id === 'string' || typeof response.id === 'number'
+    const responseId = typeof response.id === 'string' || typeof response.id === 'number'
       ? String(response.id)
       : undefined
-    if (id === undefined) return
-    const pending = this.#pending.get(id)
-    if (pending === undefined || pending.socket !== socket) return
-    this.#takePending(id)
-
+    if (responseId !== undefined && responseId !== id) {
+      return new Error(`Herdr socket response id ${responseId} does not match ${id}`)
+    }
     if (response.error !== undefined && response.error !== null) {
-      pending.reject(new Error(`Herdr socket error: ${errorText(response.error)}`))
-    } else if (response.result !== undefined) {
-      pending.resolve()
-    } else {
-      pending.reject(new Error('Herdr socket response has neither result nor error'))
+      return new Error(`Herdr socket error: ${errorText(response.error)}`)
     }
-  }
-
-  #takePending(id: string): PendingResponse | undefined {
-    const pending = this.#pending.get(id)
-    if (pending === undefined) return undefined
-    this.#pending.delete(id)
-    clearTimeout(pending.timer)
-    return pending
-  }
-
-  #disconnect(socket: Socket, error: Error): void {
-    if (this.#socket === socket) this.#socket = undefined
-    for (const [id, pending] of this.#pending) {
-      if (pending.socket !== socket) continue
-      this.#takePending(id)?.reject(error)
+    if (response.result === undefined) {
+      return new Error('Herdr socket response has neither result nor error')
     }
-    if (!socket.destroyed) socket.destroy()
+    return undefined
   }
 }
 

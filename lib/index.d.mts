@@ -52,7 +52,14 @@ interface StateReporter {
 type HerdrParams = Record<string, string | number | Readonly<Record<string, string>>>;
 declare function reporterConfigFromEnv(env?: NodeJS.ProcessEnv): HerdrReporterConfig | undefined;
 declare function runHerdr(binary: string, args: readonly string[], timeoutMs: number): Promise<void>;
-/** Persistent newline-delimited JSON client for Unix sockets and Windows named pipes. */
+/**
+ * Newline-delimited JSON client for Unix sockets and Windows named pipes.
+ *
+ * Herdr serves one request per connection and hangs up after answering, so
+ * every request dials its own socket. Holding one open and writing a second
+ * request to it earns an EPIPE, which is silent here: the report is dropped
+ * and the pane keeps whatever state it had.
+ */
 declare class HerdrSocketClient {
   #private;
   constructor(socketPath: string);

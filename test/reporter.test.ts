@@ -46,8 +46,8 @@ function testSocketPath(label: string): string {
   return path
 }
 
-test('reporter reuses one persistent socket and sends Herdr NDJSON methods', async () => {
-  const socketPath = testSocketPath('persistent')
+test('reporter dials one socket per request and sends Herdr NDJSON methods', async () => {
+  const socketPath = testSocketPath('perreq')
   const requests: Array<{ id: string, method: string, params: Record<string, unknown> }> = []
   let connections = 0
   const server = createServer(socket => {
@@ -63,7 +63,9 @@ test('reporter reuses one persistent socket and sends Herdr NDJSON methods', asy
         buffer = buffer.slice(newline + 1)
         const request = JSON.parse(line) as typeof requests[number]
         requests.push(request)
-        socket.write(`${JSON.stringify({ id: request.id, result: { type: 'ok' } })}\n`)
+        // Herdr answers one request per connection and then hangs up; a mock
+        // that stays open hides every write-to-closed-pipe bug.
+        socket.end(`${JSON.stringify({ id: request.id, result: { type: 'ok' } })}\n`)
       }
     })
   })
@@ -90,7 +92,9 @@ test('reporter reuses one persistent socket and sends Herdr NDJSON methods', asy
     await reporter.release()
     await reporter.close()
 
-    assert.equal(connections, 1)
+    // One connection per request: Herdr hangs up after each response, so
+    // reusing a socket silently drops every report after the first.
+    assert.equal(connections, 3)
     assert.equal(cliCalls.length, 0)
     assert.deepEqual(requests.map(({ method }) => method), [
       'pane.report_agent',
