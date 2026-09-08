@@ -279,7 +279,7 @@ export class HerdrReporter implements StateReporter {
       void this.release()
       return
     }
-    const desired = `${snapshot.state}\0${snapshot.message ?? ''}`
+    const desired = `${snapshot.state}\0${snapshot.message ?? ''}\0${snapshot.sessionId ?? ''}`
     if (!this.#released && desired === this.#lastDesired) return
     this.#released = false
     this.#lastDesired = desired
@@ -301,6 +301,10 @@ export class HerdrReporter implements StateReporter {
     if (snapshot.message !== undefined) {
       params.message = snapshot.message
       args.push('--message', snapshot.message)
+    }
+    if (snapshot.sessionId !== undefined) {
+      params.agent_session_id = snapshot.sessionId
+      args.push('--agent-session-id', snapshot.sessionId)
     }
     this.#enqueue('pane.report_agent', params, args)
   }

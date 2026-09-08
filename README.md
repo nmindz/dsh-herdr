@@ -11,7 +11,12 @@ Herdr status integration for DeepSeek Harness. The plugin runs inside the DSH TU
 | Any agent has an unresolved approval | `blocked` |
 | No pending approval, any agent running | `working` |
 | Agents exist and all are idle | `idle` |
-| Last agent disposed, or the plugin unloaded | `release-agent` |
+| No agents yet, or the last one disposed | `idle` |
+| The plugin unloaded | `release-agent` |
+
+The plugin claims its pane the moment it loads, before the first agent exists, so an open-but-unused DSH TUI still appears in the Herdr agent panel. Authority is only handed back when the plugin unloads — an empty rollup is `idle`, not a release, because the TUI still owns the pane.
+
+Every report carries the root DSH session id as Herdr's `agent_session_id`, which is the key `DSH_TUI_RESUME_SESSION` accepts. The root is the first top-level agent from `ctx.agents.roots()`; Herdr hands the value back through its pane and agent APIs as `agent_session` with `kind: "id"`.
 
 The plugin listens on `agent/created`, `agent/status`, `agent/disposed`, and `session/event`. When an existing session is resumed it folds the `approval/asked` and `approval/decided` events already in the log, so a pending approval survives a restart instead of being lost.
 

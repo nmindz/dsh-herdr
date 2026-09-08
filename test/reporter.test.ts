@@ -247,6 +247,28 @@ test('reporter serializes state and release commands with epoch-based sequence n
   assert.equal(Number(calls[2]?.args.at(8)) > Number(calls[0]?.args.at(10)), true)
 })
 
+test('the session id travels on both the socket params and the CLI fallback', async () => {
+  const calls: readonly string[][] = []
+  const run: RunHerdr = async (_binary, args) => {
+    ;(calls as string[][]).push([...args])
+  }
+  const reporter = new HerdrReporter({ binary: 'herdr', paneId: 'w1:p1' }, run)
+  reporter.update({ state: 'idle', agentCount: 0, runningCount: 0, approvalCount: 0, sessionId: 'sess-1' })
+  await reporter.whenIdle()
+
+  const args = calls[0] ?? []
+  assert.equal(args.at(0), 'pane')
+  assert.equal(args.at(1), 'report-agent')
+  assert.equal(args.includes('--agent-session-id'), true)
+  assert.equal(args.at(args.indexOf('--agent-session-id') + 1), 'sess-1')
+
+  // A changed session id must not be swallowed by the unchanged-rollup guard.
+  reporter.update({ state: 'idle', agentCount: 0, runningCount: 0, approvalCount: 0, sessionId: 'sess-2' })
+  await reporter.whenIdle()
+  assert.equal(calls.length, 2)
+  assert.equal(calls[1]?.at(calls[1].indexOf('--agent-session-id') + 1), 'sess-2')
+})
+
 test('an empty process rollup releases existing Herdr authority', async () => {
   const calls: readonly string[][] = []
   const run: RunHerdr = async (_binary, args) => {

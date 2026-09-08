@@ -57,11 +57,36 @@ test('bridge coalesces synchronous DSH events and releases on disposal', async (
 
   bridge.remove(agent.id)
   await Promise.resolve()
-  assert.equal(updates.at(-1)?.state, undefined)
+  assert.equal(updates.at(-1)?.state, 'idle')
+  assert.equal(updates.at(-1)?.agentCount, 0)
 
   await bridge.dispose()
   await bridge.dispose()
   assert.equal(releases(), 1)
+})
+
+test('announce registers the pane with no agents present', async () => {
+  const { reporter, updates } = collector()
+  const bridge = new DshHerdrBridge(reporter)
+
+  bridge.announce()
+  await Promise.resolve()
+
+  assert.equal(updates.length, 1)
+  assert.equal(updates[0]?.state, 'idle')
+  assert.equal(updates[0]?.agentCount, 0)
+})
+
+test('the root session id reaches the reporter', async () => {
+  const { reporter, updates } = collector()
+  const bridge = new DshHerdrBridge(reporter)
+
+  bridge.setRootSession('root-session')
+  bridge.upsert(fakeAgent('root', 'running'))
+  await Promise.resolve()
+
+  assert.equal(updates.at(-1)?.sessionId, 'root-session')
+  assert.equal(updates.at(-1)?.state, 'working')
 })
 
 test('upsert seeds unresolved approvals from the existing session log', async () => {

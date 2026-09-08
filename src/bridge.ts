@@ -19,6 +19,16 @@ export class DshHerdrBridge {
     this.#reporter = reporter
   }
 
+  /** Claim the pane as soon as the plugin loads, before any agent exists. */
+  announce(): void {
+    this.#changed()
+  }
+
+  setRootSession(sessionId: string | undefined): void {
+    this.#tracker.setRootSession(sessionId)
+    this.#changed()
+  }
+
   upsert(agent: Agent): void {
     this.#tracker.upsert(String(agent.id), agent.status, unresolvedApprovals(agent.session.snapshotEvents()))
     this.#changed()

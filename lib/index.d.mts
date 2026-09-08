@@ -9,12 +9,15 @@ interface StateSnapshot {
   readonly runningCount: number;
   readonly approvalCount: number;
   readonly message?: string;
+  /** Root DSH session id — the key `DSH_TUI_RESUME_SESSION` accepts. */
+  readonly sessionId?: string;
 }
 /** Fold both persisted seed events and live events into unresolved approval ids. */
 declare function unresolvedApprovals(events: readonly SessionEvent[]): Set<string>;
 /** Process-local rollup for every root and child agent hosted by one DSH TUI. */
 declare class DshStateTracker {
   #private;
+  setRootSession(sessionId: string | undefined): void;
   upsert(agentId: string, status: AgentStatus, approvals?: Iterable<string>): void;
   setStatus(agentId: string, status: AgentStatus): void;
   approvalAsked(agentId: string, approvalId: string): void;
@@ -64,6 +67,9 @@ declare class HerdrReporter implements StateReporter {
 declare class DshHerdrBridge {
   #private;
   constructor(reporter: StateReporter);
+  /** Claim the pane as soon as the plugin loads, before any agent exists. */
+  announce(): void;
+  setRootSession(sessionId: string | undefined): void;
   upsert(agent: Agent): void;
   setStatus(agentId: unknown, status: AgentStatus): void;
   sessionEvent(sessionId: unknown, event: SessionEvent): void;

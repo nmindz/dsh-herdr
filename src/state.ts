@@ -9,6 +9,8 @@ export interface StateSnapshot {
   readonly runningCount: number
   readonly approvalCount: number
   readonly message?: string
+  /** Root DSH session id — the key `DSH_TUI_RESUME_SESSION` accepts. */
+  readonly sessionId?: string
 }
 
 interface TrackedAgent {
@@ -49,6 +51,11 @@ export function unresolvedApprovals(events: readonly SessionEvent[]): Set<string
 /** Process-local rollup for every root and child agent hosted by one DSH TUI. */
 export class DshStateTracker {
   readonly #agents = new Map<string, TrackedAgent>()
+  #rootSessionId?: string
+
+  setRootSession(sessionId: string | undefined): void {
+    this.#rootSessionId = sessionId
+  }
 
   upsert(agentId: string, status: AgentStatus, approvals: Iterable<string> = []): void {
     const tracked = this.#agents.get(agentId)
@@ -83,8 +90,12 @@ export class DshStateTracker {
     const agentCount = agents.length
     const runningCount = agents.filter(({ status }) => status === 'running').length
     const approvalCount = agents.reduce((count, { approvals }) => count + approvals.size, 0)
+    const session = this.#rootSessionId === undefined ? {} : { sessionId: this.#rootSessionId }
 
-    if (agentCount === 0) return { agentCount, runningCount, approvalCount }
+    // A live DSH TUI holds the pane even before its first agent exists, so an
+    // empty rollup is idle rather than a release — authority is only handed
+    // back when the plugin unloads.
+    if (agentCount === 0) return { state: 'idle', agentCount, runningCount, approvalCount, ...session }
     if (approvalCount > 0) {
       return {
         state: 'blocked',
@@ -92,6 +103,7 @@ export class DshStateTracker {
         runningCount,
         approvalCount,
         message: `${approvalCount} ${plural(approvalCount, 'approval')} waiting`,
+        ...session,
       }
     }
     if (runningCount > 0) {
@@ -101,6 +113,7 @@ export class DshStateTracker {
         runningCount,
         approvalCount,
         message: `${runningCount} ${plural(runningCount, 'agent')} working`,
+        ...session,
       }
     }
     return {
@@ -109,6 +122,7 @@ export class DshStateTracker {
       runningCount,
       approvalCount,
       message: `${agentCount} ${plural(agentCount, 'agent')} idle`,
+      ...session,
     }
   }
 }

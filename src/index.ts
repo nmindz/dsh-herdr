@@ -24,11 +24,25 @@ export function apply(ctx: Context): void {
   // Register cleanup first so event listeners unwind before the final release.
   ctx.effect(() => async () => bridge.dispose(), 'dsh-herdr reporter')
 
-  for (const agent of ctx.agents.list()) bridge.upsert(agent)
+  // Registration order: the first top-level agent owns the resumable session.
+  const syncRootSession = (): void => {
+    const root = ctx.agents.roots()[0]
+    bridge.setRootSession(root === undefined ? undefined : String(root.id))
+  }
 
-  ctx.on('agent/created', ({ agent }) => bridge.upsert(agent))
+  for (const agent of ctx.agents.list()) bridge.upsert(agent)
+  syncRootSession()
+  bridge.announce()
+
+  ctx.on('agent/created', ({ agent }) => {
+    bridge.upsert(agent)
+    syncRootSession()
+  })
   ctx.on('agent/status', ({ agent, status }) => bridge.setStatus(agent.id, status))
-  ctx.on('agent/disposed', ({ agent }) => bridge.remove(agent.id))
+  ctx.on('agent/disposed', ({ agent }) => {
+    bridge.remove(agent.id)
+    syncRootSession()
+  })
   ctx.on('session/event', (session, event) => {
     bridge.sessionEvent(session.id, event as SessionEvent)
   })
