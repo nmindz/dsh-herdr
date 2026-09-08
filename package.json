@@ -60,7 +60,9 @@
     "build": "tsdown",
     "test": "node --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm test && npm run build"
+    "check": "npm run typecheck && npm test && npm run build",
+    "symlink": "scripts/symlink.sh",
+    "symlink:force": "scripts/symlink.sh --force"
   },
   "license": "MIT",
   "repository": {

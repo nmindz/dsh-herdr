@@ -46,6 +46,16 @@ To develop against a checkout instead of a tarball, link it into the profile —
 dsh plugin --profile tui add link:/path/to/dsh-herdr
 ```
 
+`pnpm run symlink` does that for every profile under `$DSH_HOME/profiles` in one step: it builds, links any profile not already pointing at this checkout, then verifies each one resolves here, carries a `lib/index.mjs`, and is listed in the profile's `dsh.profile.bundles`. It exits non-zero if a profile fails any of those.
+
+```sh
+pnpm run symlink              # build, then link whatever needs it
+pnpm run symlink:force        # re-link every profile even if already linked
+scripts/symlink.sh --no-build tui   # one profile, skip the build
+```
+
+Restart each DSH TUI afterwards; a running process keeps the code it booted with.
+
 ## Install from a release
 
 This fork publishes tagged releases. Install a pinned one:
